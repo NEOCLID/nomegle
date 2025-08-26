@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nomegle - Friendly Video Chats</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect for a more natural feel */
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div id="app-container" class="w-full max-w-4xl mx-auto bg-white rounded-2xl shadow-2xl p-6 md:p-8">
+        <header class="text-center border-b border-slate-200 pb-4 mb-6">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-800">nomegle ✨</h1>
+            <p class="text-lg text-slate-500 mt-2">Connect with a friendly face</p>
+        </header>
+
+        <!-- Firebase Setup Message -->
+        <div id="setup-message" class="hidden text-center p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 rounded-lg">
+            <h3 class="font-bold text-xl mb-2">Configuration Needed</h3>
+            <p class="text-left">To use this app, you need to set up a free Firebase project:</p>
+            <ol class="list-decimal list-inside text-left mt-2 space-y-1">
+                <li>Go to the <a href="https://console.firebase.google.com/" target="_blank" class="underline text-blue-600 hover:text-blue-800">Firebase Console</a> and create a new project.</li>
+                <li>In your new project, go to <strong>Build &gt; Firestore Database</strong>, create a database, and start it in <strong>Test mode</strong>.</li>
+                <li>Go to <strong>Project Settings (⚙️) &gt; Your apps</strong>, create a new <strong>Web app</strong> (&lt;/&gt;).</li>
+                <li>Copy the `firebaseConfig` object provided.</li>
+                <li>Paste it into the HTML file where it says `// PASTE YOUR FIREBASE CONFIG HERE`.</li>
+            </ol>
+        </div>
+
+        <div id="start-screen" class="flex flex-col items-center justify-center text-center h-[50vh]">
+            <p class="text-xl md:text-2xl text-slate-600 mb-8">Ready to have a pleasant chat?<br>Click the button below to get started.</p>
+            <button id="start-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-2xl py-4 px-10 rounded-xl shadow-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300">
+                Start a Chat
+            </button>
+            <p id="camera-error" class="text-red-500 mt-4 hidden">Could not access your camera. Please check your browser permissions.</p>
+        </div>
+
+        <div id="chat-screen" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                <div class="md:col-span-4 bg-slate-900 rounded-xl overflow-hidden aspect-video shadow-lg relative">
+                    <video id="remote-video" autoplay playsinline></video>
+                    <div id="connecting-message" class="absolute inset-0 h-full w-full flex items-center justify-center text-white text-2xl bg-black bg-opacity-50">
+                        <svg class="animate-spin h-8 w-8 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span id="connection-status">Searching for a partner...</span>
+                    </div>
+                </div>
+                <div class="bg-slate-800 rounded-xl overflow-hidden aspect-video shadow-md">
+                    <video id="local-video" autoplay playsinline muted></video>
+                </div>
+            </div>
+            <div class="flex flex-col md:flex-row items-center justify-center gap-4">
+                <button id="next-btn" class="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white font-bold text-xl py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300">
+                    Next Chat
+                </button>
+                <button id="end-btn" class="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white font-bold text-xl py-3 px-8 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-300">
+                    End Chat
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Config -->
+    <script src="firebase-config.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { getFirestore, collection, doc, getDocs, query, where, onSnapshot, updateDoc, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+
+        // DOM Elements
+        const setupMessage = document.getElementById('setup-message');
+        const startScreen = document.getElementById('start-screen');
+        const chatScreen = document.getElementById('chat-screen');
+        const startBtn = document.getElementById('start-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const endBtn = document.getElementById('end-btn');
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const cameraError = document.getElementById('camera-error');
+        const connectingMessage = document.getElementById('connecting-message');
+        const connectionStatus = document.getElementById('connection-status');
+
+        // WebRTC Globals
+        let db, auth;
+        let localStream, remoteStream, peerConnection;
+        let currentRoomId, roomRef, unsubscribe;
+        let callerCandidatesCollection, calleeCandidatesCollection;
+
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        // Main initialization function
+        function init() {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            startBtn.addEventListener('click', startChat);
+            endBtn.addEventListener('click', () => hangUp(true)); // Pass true to return to start screen
+            nextBtn.addEventListener('click', () => hangUp(false)); // Pass false to find a new chat
+        }
+
+        // Check for valid Firebase config before initializing
+        if (typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === "YOUR_API_KEY" || !firebaseConfig.projectId) {
+            startScreen.classList.add('hidden');
+            setupMessage.classList.remove('hidden');
+        } else {
+            init();
+        }
+
+        async function startChat() {
+            try {
+                if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                localVideo.play(); 
+                cameraError.classList.add('hidden');
+                startScreen.classList.add('hidden');
+                chatScreen.classList.remove('hidden');
+                connectingMessage.style.display = 'flex';
+                connectionStatus.textContent = 'Searching for a partner...';
+                await findOrCreateRoom();
+            } catch (error) {
+                console.error("Error starting chat:", error);
+                cameraError.classList.remove('hidden');
+                hangUp(true);
+            }
+        }
+
+        async function findOrCreateRoom() {
+            const roomsCollection = collection(db, 'rooms');
+            const q = query(roomsCollection, where('waiting', '==', true));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                await createRoom();
+            } else {
+                const roomDoc = querySnapshot.docs[0];
+                await joinRoom(roomDoc.id, roomDoc.data());
+            }
+        }
+
+        async function createRoom() {
+            connectionStatus.textContent = 'Waiting for a partner...';
+            roomRef = doc(collection(db, 'rooms'));
+            currentRoomId = roomRef.id;
+            setupPeerConnection();
+            
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            const roomData = {
+                waiting: true,
+                offer: { type: offer.type, sdp: offer.sdp }
+            };
+            await setDoc(roomRef, roomData);
+            listenForAnswer();
+        }
+
+        async function joinRoom(roomId, roomData) {
+            if (!roomData || !roomData.offer) {
+                console.error("Attempted to join an invalid room. Finding another.");
+                if(roomId) await deleteDoc(doc(db, 'rooms', roomId));
+                await findOrCreateRoom();
+                return;
+            }
+
+            connectionStatus.textContent = 'Connecting...';
+            currentRoomId = roomId;
+            roomRef = doc(db, 'rooms', roomId);
+            
+            setupPeerConnection();
+
+            const offer = roomData.offer;
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            
+            await updateDoc(roomRef, { answer: { type: answer.type, sdp: answer.sdp }, waiting: false });
+            listenForCallerCandidates();
+        }
+
+        function setupPeerConnection() {
+            peerConnection = new RTCPeerConnection(configuration);
+            registerPeerConnectionListeners();
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            callerCandidatesCollection = collection(roomRef, 'callerCandidates');
+            calleeCandidatesCollection = collection(roomRef, 'calleeCandidates');
+        }
+
+        function listenForAnswer() {
+            unsubscribe = onSnapshot(roomRef, async (snapshot) => {
+                const data = snapshot.data();
+                if (peerConnection && !peerConnection.currentRemoteDescription && data && data.answer) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                }
+            });
+            onSnapshot(calleeCandidatesCollection, snapshot => handleIceCandidates(snapshot));
+        }
+
+        function listenForCallerCandidates() {
+            onSnapshot(callerCandidatesCollection, snapshot => handleIceCandidates(snapshot));
+        }
+
+        async function handleIceCandidates(snapshot) {
+            for (const change of snapshot.docChanges()) {
+                if (change.type === 'added' && peerConnection && peerConnection.remoteDescription) {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                }
+            }
+        }
+
+        function registerPeerConnectionListeners() {
+            peerConnection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    try {
+                        const isCaller = peerConnection.localDescription.type === 'offer';
+                        const candidatesCollection = isCaller ? callerCandidatesCollection : calleeCandidatesCollection;
+                        await addDoc(candidatesCollection, event.candidate.toJSON());
+                    } catch (error) {
+                        console.error("Error adding ICE candidate:", error);
+                    }
+                }
+            };
+
+            peerConnection.ontrack = (event) => {
+                if (peerConnection && peerConnection.connectionState !== 'closed') {
+                    remoteVideo.srcObject = event.streams[0];
+                    remoteVideo.play();
+                    connectingMessage.style.display = 'none';
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                if (peerConnection) {
+                    console.log(`Connection state change: ${peerConnection.connectionState}`);
+                    if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
+                        hangUp(false);
+                    }
+                }
+            };
+        }
+
+        async function hangUp(returnToStart) {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            if (unsubscribe) {
+                unsubscribe();
+                unsubscribe = null;
+            }
+
+            if (currentRoomId) {
+                const roomToDeleteRef = doc(db, 'rooms', currentRoomId);
+                try {
+                    const callerCandidatesRef = collection(roomToDeleteRef, 'callerCandidates');
+                    const calleeCandidatesRef = collection(roomToDeleteRef, 'calleeCandidates');
+                    const [callerDocs, calleeDocs] = await Promise.all([getDocs(callerCandidatesRef), getDocs(calleeCandidatesRef)]);
+                    
+                    const deletePromises = [];
+                    callerDocs.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+                    calleeDocs.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+                    
+                    await Promise.all(deletePromises);
+                    await deleteDoc(roomToDeleteRef);
+                } catch (error) {
+                    console.log("Error deleting room, it may have been cleaned up already:", error.code);
+                }
+            }
+
+            localVideo.srcObject = null;
+            remoteVideo.srcObject = null;
+            currentRoomId = null;
+
+            if (returnToStart) {
+                chatScreen.classList.add('hidden');
+                startScreen.classList.remove('hidden');
+            } else {
+                setTimeout(startChat, 100);
+            }
+        }
+    </script>
+</body>
+</html>
